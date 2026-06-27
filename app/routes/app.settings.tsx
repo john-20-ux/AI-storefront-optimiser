@@ -6,7 +6,7 @@ import { authenticate } from "../shopify.server";
 import { ensureShop, getScanSettings } from "../lib/shop.server";
 import { getConnectionPublic } from "../lib/aiConnection.server";
 import { AI_PROVIDERS, PROVIDER_LABELS } from "../lib/aiProviders";
-import { createAuthorizeUrl } from "../lib/openrouter.server";
+import { signStartToken } from "../lib/oauthSecurity.server";
 import { encryptionConfigured } from "../lib/crypto.server";
 import prisma from "../db.server";
 
@@ -28,14 +28,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const settings = await getScanSettings(session.shop);
   const aiConnection = await getConnectionPublic(session.shop);
 
-  // Build a fresh OpenRouter authorize URL (PKCE) when the app URL is known.
+  // Link to the first-party start route with a signed token (it creates the PKCE
+  // state, sets the browser-binding cookie, and redirects to OpenRouter).
   let openRouterUrl: string | null = null;
   if (process.env.SHOPIFY_APP_URL && encryptionConfigured()) {
-    try {
-      openRouterUrl = await createAuthorizeUrl(session.shop);
-    } catch {
-      openRouterUrl = null;
-    }
+    openRouterUrl = `/openrouter/start?token=${encodeURIComponent(signStartToken(session.shop))}`;
   }
 
   return {

@@ -19,10 +19,12 @@ function callbackUrl(state: string): string {
 }
 
 /**
- * Create a PKCE state for this shop and return the OpenRouter authorize URL.
- * The merchant's browser navigates to it (top-level).
+ * Create a PKCE state for this shop and return the OpenRouter authorize URL plus
+ * the `state` (so the caller can browser-bind it via an HttpOnly cookie).
  */
-export async function createAuthorizeUrl(shopDomain: string): Promise<string> {
+export async function createAuthorizeUrl(
+  shopDomain: string,
+): Promise<{ state: string; url: string }> {
   const state = base64url(crypto.randomBytes(16));
   const codeVerifier = base64url(crypto.randomBytes(32));
   const codeChallenge = base64url(crypto.createHash("sha256").update(codeVerifier).digest());
@@ -38,7 +40,7 @@ export async function createAuthorizeUrl(shopDomain: string): Promise<string> {
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
-  return `${AUTHORIZE_URL}?${params.toString()}`;
+  return { state, url: `${AUTHORIZE_URL}?${params.toString()}` };
 }
 
 /**
