@@ -7,6 +7,7 @@ import { saveScanSummary } from "../lib/shop.server";
 export interface ProductRow {
   id: string; // full gid
   numericId: string; // trailing id, used in URLs
+  handle: string;
   title: string;
   image: string | null;
   status: string;
@@ -15,6 +16,7 @@ export interface ProductRow {
   levelLabel: string;
   mainIssue: string | null;
   issueCount: number;
+  issues: string[]; // all issue messages, for CSV export
   flags: {
     missingSeo: boolean;
     missingAlt: boolean;
@@ -53,6 +55,7 @@ export async function runScan(
     return {
       id: product.id,
       numericId: numericId(product.id),
+      handle: product.handle,
       title: product.title || "(untitled product)",
       image: product.featuredImageUrl,
       status: product.status,
@@ -61,6 +64,7 @@ export async function runScan(
       levelLabel: LEVEL_LABELS[result.level],
       mainIssue: main?.message ?? null,
       issueCount: result.issues.length,
+      issues: result.issues.map((issue) => issue.message),
       flags: {
         missingSeo: has(codes, ["MISSING_SEO_TITLE", "MISSING_SEO_DESCRIPTION"]),
         missingAlt: has(codes, ["MISSING_IMAGE_ALT", "MISSING_IMAGES"]),

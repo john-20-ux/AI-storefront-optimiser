@@ -101,6 +101,9 @@ export default function Products() {
 
   return (
     <s-page heading="Products">
+      <s-button slot="primary-action" href="/api/export" target="_blank">
+        Export CSV
+      </s-button>
       <s-section
         heading={`${data.scanned} products scanned · average readiness ${data.averageScore}/100`}
       >

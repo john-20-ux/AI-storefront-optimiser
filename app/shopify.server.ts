@@ -2,10 +2,25 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
+import type { BillingConfigSubscriptionLineItemPlan } from "@shopify/shopify-api";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+
+// Plan names here must match the keys in app/billing/plans.ts.
+export const BILLING_PLANS: Record<string, BillingConfigSubscriptionLineItemPlan> = {
+  starter: {
+    lineItems: [{ amount: 9, currencyCode: "USD", interval: BillingInterval.Every30Days }],
+  },
+  growth: {
+    lineItems: [{ amount: 29, currencyCode: "USD", interval: BillingInterval.Every30Days }],
+  },
+  pro: {
+    lineItems: [{ amount: 79, currencyCode: "USD", interval: BillingInterval.Every30Days }],
+  },
+};
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -16,6 +31,7 @@ const shopify = shopifyApp({
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
+  billing: BILLING_PLANS,
   future: {
     expiringOfflineAccessTokens: true,
   },
