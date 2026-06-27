@@ -50,6 +50,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: GraphQL contract check (validate queries against the Admin schema)
+        run: npm run graphql-codegen
+
       - name: Tests (unit + integration + routes)
         run: npm test
 

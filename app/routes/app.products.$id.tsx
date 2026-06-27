@@ -6,24 +6,18 @@ import { authenticate } from "../shopify.server";
 import { fetchProductById } from "../shopify/fetchProducts";
 import { scoreProduct, LEVEL_LABELS } from "../scoring";
 import { stripHtml } from "../scoring/text";
-import { generateFixes, type Suggestions } from "../ai/generate";
+import { generateFixes } from "../ai/generate";
 import { applySelectedFixes, type FieldSelection } from "../shopify/applyFixes.server";
 import { getScanSettings } from "../lib/shop.server";
 import { getPlan } from "../billing/plans";
 import { hasConnection, getCredential } from "../lib/aiConnection.server";
+import {
+  FIELD_ROWS,
+  displaySuggestion,
+  applyValue,
+  type FieldKey,
+} from "../lib/suggestionFields";
 import prisma from "../db.server";
-
-// Maps a before/after row to the underlying field key.
-const FIELD_ROWS = [
-  { key: "title", label: "Title" },
-  { key: "descriptionHtml", label: "Description" },
-  { key: "seoTitle", label: "SEO title" },
-  { key: "seoDescription", label: "SEO meta description" },
-  { key: "tags", label: "Tags" },
-  { key: "imageAlt", label: "Image alt text" },
-] as const;
-
-type FieldKey = (typeof FIELD_ROWS)[number]["key"];
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -147,23 +141,6 @@ const severityTone: Record<string, "critical" | "warning" | "info"> = {
   medium: "warning",
   low: "info",
 };
-
-// Value shown in the "suggested" column (description stripped for readability).
-function displaySuggestion(key: FieldKey, s: Suggestions): string {
-  switch (key) {
-    case "title": return s.title;
-    case "descriptionHtml": return stripHtml(s.descriptionHtml);
-    case "seoTitle": return s.seoTitle;
-    case "seoDescription": return s.seoDescription;
-    case "tags": return s.tags.join(", ");
-    case "imageAlt": return s.imageAlt;
-  }
-}
-
-// Raw value submitted on apply (description keeps its HTML).
-function applyValue(key: FieldKey, s: Suggestions): string {
-  return key === "descriptionHtml" ? s.descriptionHtml : displaySuggestion(key, s);
-}
 
 export default function ProductDetail() {
   const data = useLoaderData<typeof loader>();

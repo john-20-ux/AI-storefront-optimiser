@@ -5,33 +5,9 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { ensureShop, getScanSettings } from "../lib/shop.server";
 import { getPlan } from "../billing/plans";
-import { runScan, type ProductRow } from "../scoring/scan.server";
+import { runScan } from "../scoring/scan.server";
+import { FILTERS, matchesFilter, type FilterKey } from "../lib/productFilters";
 import prisma from "../db.server";
-
-type FilterKey =
-  | "all"
-  | "critical"
-  | "needs_work"
-  | "good"
-  | "excellent"
-  | "missing_seo"
-  | "missing_alt"
-  | "missing_category"
-  | "weak_description"
-  | "variant_issues";
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "All products" },
-  { key: "critical", label: "Critical" },
-  { key: "needs_work", label: "Needs Work" },
-  { key: "good", label: "Good" },
-  { key: "excellent", label: "Excellent" },
-  { key: "missing_seo", label: "Missing SEO" },
-  { key: "missing_alt", label: "Missing alt text" },
-  { key: "missing_category", label: "Missing category" },
-  { key: "weak_description", label: "Weak description" },
-  { key: "variant_issues", label: "Variant issues" },
-];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -56,28 +32,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     planLabel: plan.label,
   };
 };
-
-function matchesFilter(row: ProductRow, filter: FilterKey): boolean {
-  switch (filter) {
-    case "all":
-      return true;
-    case "critical":
-    case "needs_work":
-    case "good":
-    case "excellent":
-      return row.level === filter;
-    case "missing_seo":
-      return row.flags.missingSeo;
-    case "missing_alt":
-      return row.flags.missingAlt;
-    case "missing_category":
-      return row.flags.missingCategory;
-    case "weak_description":
-      return row.flags.weakDescription;
-    case "variant_issues":
-      return row.flags.variantIssues;
-  }
-}
 
 const levelTone: Record<string, "critical" | "warning" | "info" | "success"> = {
   critical: "critical",

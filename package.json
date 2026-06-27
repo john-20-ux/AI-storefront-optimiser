@@ -6,6 +6,8 @@
     "dev": "shopify app dev",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "bench": "vitest bench --run",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "shopify app deploy",
@@ -44,6 +46,7 @@
     "vite-tsconfig-paths": "^6.0.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@shopify/api-codegen-preset": "^2.0.0",
     "@shopify/cli": "^4.3.0",
     "@shopify/polaris-types": "1.0.1",
