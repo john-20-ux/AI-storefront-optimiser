@@ -9,13 +9,13 @@ ENV NODE_ENV=production
 
 COPY package.json package-lock.json* ./
 
-# Install all deps (build tooling lives in devDependencies), build, then prune.
+# Install all deps (build tooling lives in devDependencies).
 RUN npm ci && npm cache clean --force
 
 COPY . .
 
-RUN npm run build
+# Generate the Prisma client and build the app.
+RUN npx prisma generate && npm run build
 
-RUN npm prune --omit=dev
-
+# docker-start runs: prisma migrate deploy (idempotent) then react-router-serve.
 CMD ["npm", "run", "docker-start"]
