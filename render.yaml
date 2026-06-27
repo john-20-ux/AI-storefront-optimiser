@@ -9,7 +9,7 @@ services:
     name: ai-storefront-optimizer
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter # always-on; "free" spins down (not ideal for an embedded app)
+    plan: free # trial; spins down after ~15 min idle. Switch to "starter" for always-on.
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -32,4 +32,4 @@ services:
 
 databases:
   - name: ai-storefront-db
-    plan: basic-256mb # smallest always-on Postgres; "free" expires after 30 days
+    plan: free # trial; expires after 30 days. Switch to "basic-256mb" to keep it.
