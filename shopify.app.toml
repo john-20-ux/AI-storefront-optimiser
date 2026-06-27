@@ -2,10 +2,15 @@
 client_id = ""
 name = "AI Storefront Optimizer"
 handle = "ai-storefront-optimizer"
+application_url = "https://ai-storefront-optimizer.onrender.com"
+embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_products,write_products,read_files,write_files"
+
+[auth]
+redirect_urls = [ "https://ai-storefront-optimizer.onrender.com/auth/callback" ]
 
 [webhooks]
 api_version = "2025-10"
