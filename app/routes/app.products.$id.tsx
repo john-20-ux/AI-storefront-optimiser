@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -6,10 +7,23 @@ import { fetchProductById } from "../shopify/fetchProducts";
 import { scoreProduct, LEVEL_LABELS } from "../scoring";
 import { stripHtml } from "../scoring/text";
 import { generateFixes, type Suggestions } from "../ai/generate";
+import { applySelectedFixes, type FieldSelection } from "../shopify/applyFixes.server";
 import { getScanSettings } from "../lib/shop.server";
 import { getPlan } from "../billing/plans";
 import { aiConfigured } from "../ai/client";
 import prisma from "../db.server";
+
+// Maps a before/after row to the underlying field key.
+const FIELD_ROWS = [
+  { key: "title", label: "Title" },
+  { key: "descriptionHtml", label: "Description" },
+  { key: "seoTitle", label: "SEO title" },
+  { key: "seoDescription", label: "SEO meta description" },
+  { key: "tags", label: "Tags" },
+  { key: "imageAlt", label: "Image alt text" },
+] as const;
+
+type FieldKey = (typeof FIELD_ROWS)[number]["key"];
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -39,6 +53,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     breakdown: result.breakdown,
     issues: result.issues,
     canGenerate: plan.canGenerateFixes && aiConfigured(),
+    canApply: plan.canApplySingle,
     planLabel: plan.label,
     current: {
       title: product.title,
@@ -55,35 +70,66 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = form.get("intent");
-
-  if (intent !== "generate") {
-    return { ok: false as const, error: "Unknown action." };
-  }
+  const gid = `gid://shopify/Product/${params.id}`;
 
   const shop = await prisma.shop.findUnique({ where: { shopDomain: session.shop } });
   const plan = getPlan(shop?.planName);
-  if (!plan.canGenerateFixes) {
-    return { ok: false as const, error: "Upgrade your plan to generate AI fixes." };
-  }
-  if (!aiConfigured()) {
-    return { ok: false as const, error: "AI is not configured (missing ANTHROPIC_API_KEY)." };
+
+  if (intent === "generate") {
+    if (!plan.canGenerateFixes) {
+      return { ok: false as const, kind: "generate" as const, error: "Upgrade your plan to generate AI fixes." };
+    }
+    if (!aiConfigured()) {
+      return { ok: false as const, kind: "generate" as const, error: "AI is not configured (missing ANTHROPIC_API_KEY)." };
+    }
+    const product = await fetchProductById(admin, gid);
+    if (!product) return { ok: false as const, kind: "generate" as const, error: "Product not found." };
+    const result = scoreProduct(product);
+    const settings = await getScanSettings(session.shop);
+    try {
+      const suggestions = await generateFixes(product, result.issues, settings);
+      return { ok: true as const, kind: "generate" as const, suggestions };
+    } catch (e) {
+      return { ok: false as const, kind: "generate" as const, error: (e as Error).message };
+    }
   }
 
-  const gid = `gid://shopify/Product/${params.id}`;
-  const product = await fetchProductById(admin, gid);
-  if (!product) {
-    return { ok: false as const, error: "Product not found." };
+  if (intent === "apply") {
+    if (!plan.canApplySingle) {
+      return { ok: false as const, kind: "apply" as const, error: "Upgrade your plan to apply fixes." };
+    }
+    const product = await fetchProductById(admin, gid);
+    if (!product) return { ok: false as const, kind: "apply" as const, error: "Product not found." };
+
+    const selection: FieldSelection = {};
+    const get = (k: string) => {
+      const v = form.get(k);
+      return typeof v === "string" ? v : undefined;
+    };
+    if (get("title") !== undefined) selection.title = get("title");
+    if (get("descriptionHtml") !== undefined) selection.descriptionHtml = get("descriptionHtml");
+    if (get("seoTitle") !== undefined) selection.seoTitle = get("seoTitle");
+    if (get("seoDescription") !== undefined) selection.seoDescription = get("seoDescription");
+    if (get("tags") !== undefined) selection.tags = get("tags");
+    if (get("imageAlt") !== undefined) selection.imageAlt = get("imageAlt");
+
+    const firstImageMediaId =
+      product.media.find((m) => m.mediaContentType === "IMAGE")?.id ?? null;
+
+    const { appliedFields, errors } = await applySelectedFixes(
+      admin,
+      gid,
+      selection,
+      firstImageMediaId,
+    );
+
+    if (errors.length) {
+      return { ok: false as const, kind: "apply" as const, error: errors.join("; ") };
+    }
+    return { ok: true as const, kind: "apply" as const, appliedFields };
   }
 
-  const result = scoreProduct(product);
-  const settings = await getScanSettings(session.shop);
-
-  try {
-    const suggestions = await generateFixes(product, result.issues, settings);
-    return { ok: true as const, suggestions };
-  } catch (e) {
-    return { ok: false as const, error: (e as Error).message };
-  }
+  return { ok: false as const, kind: "generate" as const, error: "Unknown action." };
 };
 
 const levelTone: Record<string, "critical" | "warning" | "info" | "success"> = {
@@ -99,29 +145,54 @@ const severityTone: Record<string, "critical" | "warning" | "info"> = {
   low: "info",
 };
 
-function suggestedValue(key: string, s: Suggestions | undefined): string | null {
-  if (!s) return null;
+// Value shown in the "suggested" column (description stripped for readability).
+function displaySuggestion(key: FieldKey, s: Suggestions): string {
   switch (key) {
-    case "Title":
-      return s.title;
-    case "Description":
-      return stripHtml(s.descriptionHtml);
-    case "SEO title":
-      return s.seoTitle;
-    case "SEO meta description":
-      return s.seoDescription;
-    case "Tags":
-      return s.tags.join(", ");
-    case "Image alt text":
-      return s.imageAlt;
-    default:
-      return null;
+    case "title": return s.title;
+    case "descriptionHtml": return stripHtml(s.descriptionHtml);
+    case "seoTitle": return s.seoTitle;
+    case "seoDescription": return s.seoDescription;
+    case "tags": return s.tags.join(", ");
+    case "imageAlt": return s.imageAlt;
   }
+}
+
+// Raw value submitted on apply (description keeps its HTML).
+function applyValue(key: FieldKey, s: Suggestions): string {
+  return key === "descriptionHtml" ? s.descriptionHtml : displaySuggestion(key, s);
 }
 
 export default function ProductDetail() {
   const data = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
+  const genFetcher = useFetcher<typeof action>();
+  const applyFetcher = useFetcher<typeof action>();
+  const [selected, setSelected] = useState<Record<FieldKey, boolean>>({
+    title: true,
+    descriptionHtml: true,
+    seoTitle: true,
+    seoDescription: true,
+    tags: true,
+    imageAlt: true,
+  });
+
+  const suggestions =
+    genFetcher.data && genFetcher.data.kind === "generate" && genFetcher.data.ok
+      ? genFetcher.data.suggestions
+      : undefined;
+
+  // Reset selection when fresh suggestions arrive.
+  useEffect(() => {
+    if (suggestions) {
+      setSelected({
+        title: true,
+        descriptionHtml: true,
+        seoTitle: true,
+        seoDescription: true,
+        tags: true,
+        imageAlt: true,
+      });
+    }
+  }, [suggestions]);
 
   if (!data.found) {
     return (
@@ -136,24 +207,44 @@ export default function ProductDetail() {
     );
   }
 
-  const suggestions =
-    fetcher.data && "ok" in fetcher.data && fetcher.data.ok ? fetcher.data.suggestions : undefined;
-  const error =
-    fetcher.data && "ok" in fetcher.data && !fetcher.data.ok ? fetcher.data.error : null;
-  const isGenerating = fetcher.state !== "idle";
+  const genError =
+    genFetcher.data && genFetcher.data.kind === "generate" && !genFetcher.data.ok
+      ? genFetcher.data.error
+      : null;
+  const applyError =
+    applyFetcher.data && applyFetcher.data.kind === "apply" && !applyFetcher.data.ok
+      ? applyFetcher.data.error
+      : null;
+  const applySuccess =
+    applyFetcher.data && applyFetcher.data.kind === "apply" && applyFetcher.data.ok
+      ? applyFetcher.data.appliedFields
+      : null;
+
+  const isGenerating = genFetcher.state !== "idle";
+  const isApplying = applyFetcher.state !== "idle";
 
   const current = data.current;
-  const beforeAfter: { label: string; value: string }[] = [
-    { label: "Title", value: current.title },
-    { label: "Description", value: current.description || "—" },
-    { label: "SEO title", value: current.seoTitle || "—" },
-    { label: "SEO meta description", value: current.seoDescription || "—" },
-    { label: "Tags", value: current.tags || "—" },
-    { label: "Image alt text", value: current.imageAlt || "—" },
-  ];
+  const currentValue: Record<FieldKey, string> = {
+    title: current.title,
+    descriptionHtml: current.description,
+    seoTitle: current.seoTitle,
+    seoDescription: current.seoDescription,
+    tags: current.tags,
+    imageAlt: current.imageAlt,
+  };
 
-  const generate = () =>
-    fetcher.submit({ intent: "generate" }, { method: "POST" });
+  const generate = () => genFetcher.submit({ intent: "generate" }, { method: "POST" });
+
+  const applySelected = () => {
+    if (!suggestions) return;
+    const payload: Record<string, string> = { intent: "apply" };
+    for (const { key } of FIELD_ROWS) {
+      if (selected[key]) payload[key] = applyValue(key, suggestions);
+    }
+    applyFetcher.submit(payload, { method: "POST" });
+  };
+
+  const selectedCount = FIELD_ROWS.filter((f) => selected[f.key]).length;
 
   return (
     <s-page heading={data.title}>
@@ -186,10 +277,22 @@ export default function ProductDetail() {
         </s-stack>
       </s-section>
 
-      {error ? (
+      {genError ? (
         <s-section>
-          <s-banner tone="critical">
-            <s-paragraph>{error}</s-paragraph>
+          <s-banner tone="critical"><s-paragraph>{genError}</s-paragraph></s-banner>
+        </s-section>
+      ) : null}
+      {applyError ? (
+        <s-section>
+          <s-banner tone="critical"><s-paragraph>{applyError}</s-paragraph></s-banner>
+        </s-section>
+      ) : null}
+      {applySuccess ? (
+        <s-section>
+          <s-banner tone="success">
+            <s-paragraph>
+              Applied {applySuccess.length} change{applySuccess.length === 1 ? "" : "s"} to Shopify.
+            </s-paragraph>
           </s-banner>
         </s-section>
       ) : null}
@@ -204,9 +307,7 @@ export default function ProductDetail() {
             {data.breakdown.map((b) => (
               <s-table-row key={b.key}>
                 <s-table-cell>{b.label}</s-table-cell>
-                <s-table-cell>
-                  {b.score} / {b.max}
-                </s-table-cell>
+                <s-table-cell>{b.score} / {b.max}</s-table-cell>
               </s-table-row>
             ))}
           </s-table-body>
@@ -236,36 +337,72 @@ export default function ProductDetail() {
       <s-section heading="Before / after">
         <s-paragraph>
           <s-text color="subdued">
-            Current Shopify data is on the left. {data.canGenerate
-              ? "Generate fixes to see suggested improvements on the right."
-              : `Upgrade from the ${data.planLabel} plan to generate AI suggestions.`}
+            {suggestions
+              ? "Review suggestions, untick any you don't want, then apply."
+              : data.canGenerate
+                ? "Generate fixes to see suggested improvements."
+                : `Upgrade from the ${data.planLabel} plan to generate AI suggestions.`}
           </s-text>
         </s-paragraph>
         <s-table>
           <s-table-header-row>
+            {suggestions ? <s-table-header>Apply</s-table-header> : null}
             <s-table-header>Field</s-table-header>
             <s-table-header>Current</s-table-header>
             <s-table-header>Suggested</s-table-header>
           </s-table-header-row>
           <s-table-body>
-            {beforeAfter.map((field) => {
-              const suggestion = suggestedValue(field.label, suggestions);
-              return (
-                <s-table-row key={field.label}>
-                  <s-table-cell>{field.label}</s-table-cell>
-                  <s-table-cell>{field.value}</s-table-cell>
+            {FIELD_ROWS.map(({ key, label }) => (
+              <s-table-row key={key}>
+                {suggestions ? (
                   <s-table-cell>
-                    {suggestion ? (
-                      <s-text>{suggestion}</s-text>
-                    ) : (
-                      <s-text color="subdued">—</s-text>
-                    )}
+                    <s-checkbox
+                      label=""
+                      accessibilityLabel={`Apply ${label}`}
+                      checked={selected[key]}
+                      onChange={(e) =>
+                        setSelected((prev) => ({ ...prev, [key]: e.currentTarget.checked }))
+                      }
+                    />
                   </s-table-cell>
-                </s-table-row>
-              );
-            })}
+                ) : null}
+                <s-table-cell>{label}</s-table-cell>
+                <s-table-cell>{currentValue[key] || "—"}</s-table-cell>
+                <s-table-cell>
+                  {suggestions ? (
+                    <s-text>{displaySuggestion(key, suggestions)}</s-text>
+                  ) : (
+                    <s-text color="subdued">—</s-text>
+                  )}
+                </s-table-cell>
+              </s-table-row>
+            ))}
           </s-table-body>
         </s-table>
+
+        {suggestions && data.canApply ? (
+          <s-stack direction="block" gap="small-300">
+            <s-banner tone="warning">
+              <s-paragraph>
+                Review all selected changes before applying. These updates are saved directly to your
+                Shopify products.
+              </s-paragraph>
+            </s-banner>
+            <s-button
+              variant="primary"
+              onClick={applySelected}
+              {...(isApplying ? { loading: true } : {})}
+              {...(selectedCount === 0 ? { disabled: true } : {})}
+            >
+              Apply {selectedCount} selected change{selectedCount === 1 ? "" : "s"}
+            </s-button>
+          </s-stack>
+        ) : null}
+        {suggestions && !data.canApply ? (
+          <s-button href="/app/billing" variant="primary">
+            Upgrade to apply changes
+          </s-button>
+        ) : null}
       </s-section>
     </s-page>
   );
