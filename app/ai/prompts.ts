@@ -99,5 +99,8 @@ export function buildUserPrompt(
     issueLines,
     "",
     "Produce improved values for every field. For the description, return simple HTML.",
+    "",
+    "Respond with ONLY a JSON object with these keys: title (string), descriptionHtml (string, HTML), " +
+      "seoTitle (string), seoDescription (string), imageAlt (string), tags (array of strings), category (string).",
   ].join("\n");
 }

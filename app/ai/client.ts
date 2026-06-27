@@ -1,26 +1,33 @@
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+import type { AiCredential, AiProvider } from "../lib/aiConnection.server";
 
-// Single shared client. Reads ANTHROPIC_API_KEY from the environment.
-let client: Anthropic | null = null;
+// Default models per provider, by AI rule. Merchants can override via the
+// connection's `model` field.
+const DEFAULT_MODELS: Record<AiProvider, { standard: string; aggressive: string }> = {
+  anthropic: { standard: "claude-haiku-4-5", aggressive: "claude-sonnet-4-6" },
+  openai: { standard: "gpt-4o-mini", aggressive: "gpt-4o" },
+  openrouter: { standard: "openai/gpt-4o-mini", aggressive: "openai/gpt-4o" },
+};
 
-export function getAnthropic(): Anthropic {
-  if (!client) {
-    client = new Anthropic();
+export function resolveModel(cred: AiCredential, aiRule: string): string {
+  if (cred.model && cred.model.trim()) return cred.model.trim();
+  const defaults = DEFAULT_MODELS[cred.provider];
+  return aiRule === "aggressive" ? defaults.aggressive : defaults.standard;
+}
+
+export function anthropicClient(apiKey: string): Anthropic {
+  return new Anthropic({ apiKey });
+}
+
+// OpenAI SDK works for both OpenAI and OpenRouter (OpenAI-compatible API).
+export function openAiCompatibleClient(cred: AiCredential): OpenAI {
+  if (cred.provider === "openrouter") {
+    return new OpenAI({
+      apiKey: cred.apiKey,
+      baseURL: "https://openrouter.ai/api/v1",
+      defaultHeaders: { "X-Title": "AI Storefront Optimizer" },
+    });
   }
-  return client;
-}
-
-// Haiku for cheap, high-volume generation; Sonnet for higher-quality rewrites.
-export const MODELS = {
-  haiku: "claude-haiku-4-5",
-  sonnet: "claude-sonnet-4-6",
-} as const;
-
-// Map the merchant's AI rule (Settings) to a model.
-export function pickModel(aiRule: string): string {
-  return aiRule === "aggressive" ? MODELS.sonnet : MODELS.haiku;
-}
-
-export function aiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return new OpenAI({ apiKey: cred.apiKey });
 }

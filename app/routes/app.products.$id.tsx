@@ -10,7 +10,7 @@ import { generateFixes, type Suggestions } from "../ai/generate";
 import { applySelectedFixes, type FieldSelection } from "../shopify/applyFixes.server";
 import { getScanSettings } from "../lib/shop.server";
 import { getPlan } from "../billing/plans";
-import { aiConfigured } from "../ai/client";
+import { hasConnection, getCredential } from "../lib/aiConnection.server";
 import prisma from "../db.server";
 
 // Maps a before/after row to the underlying field key.
@@ -52,7 +52,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     levelLabel: LEVEL_LABELS[result.level],
     breakdown: result.breakdown,
     issues: result.issues,
-    canGenerate: plan.canGenerateFixes && aiConfigured(),
+    planAllowsGenerate: plan.canGenerateFixes,
+    aiConnected: await hasConnection(session.shop),
+    canGenerate: plan.canGenerateFixes && (await hasConnection(session.shop)),
     canApply: plan.canApplySingle,
     planLabel: plan.label,
     current: {
@@ -79,15 +81,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     if (!plan.canGenerateFixes) {
       return { ok: false as const, kind: "generate" as const, error: "Upgrade your plan to generate AI fixes." };
     }
-    if (!aiConfigured()) {
-      return { ok: false as const, kind: "generate" as const, error: "AI is not configured (missing ANTHROPIC_API_KEY)." };
+    const cred = await getCredential(session.shop);
+    if (!cred) {
+      return { ok: false as const, kind: "generate" as const, error: "Connect an AI provider in Settings first." };
     }
     const product = await fetchProductById(admin, gid);
     if (!product) return { ok: false as const, kind: "generate" as const, error: "Product not found." };
     const result = scoreProduct(product);
     const settings = await getScanSettings(session.shop);
     try {
-      const suggestions = await generateFixes(product, result.issues, settings);
+      const suggestions = await generateFixes(product, result.issues, settings, cred);
       return { ok: true as const, kind: "generate" as const, suggestions };
     } catch (e) {
       return { ok: false as const, kind: "generate" as const, error: (e as Error).message };
@@ -260,6 +263,10 @@ export default function ProductDetail() {
         >
           {suggestions ? "Regenerate fixes" : "Generate fixes"}
         </s-button>
+      ) : data.planAllowsGenerate && !data.aiConnected ? (
+        <s-button slot="primary-action" href="/app/settings" variant="primary">
+          Connect AI in Settings
+        </s-button>
       ) : (
         <s-button slot="primary-action" href="/app/billing" variant="primary">
           Upgrade to generate fixes
@@ -341,7 +348,9 @@ export default function ProductDetail() {
               ? "Review suggestions, untick any you don't want, then apply."
               : data.canGenerate
                 ? "Generate fixes to see suggested improvements."
-                : `Upgrade from the ${data.planLabel} plan to generate AI suggestions.`}
+                : data.planAllowsGenerate && !data.aiConnected
+                  ? "Connect an AI provider in Settings to generate suggestions."
+                  : `Upgrade from the ${data.planLabel} plan to generate AI suggestions.`}
           </s-text>
         </s-paragraph>
         <s-table>

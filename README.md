@@ -12,8 +12,10 @@ Prisma + Postgres, and Anthropic Claude.
 1. **Scan** — fetches products on demand via the GraphQL Admin API (no raw catalog data is stored).
 2. **Score** — a pure, rule-based engine rates seven dimensions (title, description, SEO, image,
    taxonomy, variant, trust) for a 0–100 readiness score with issue codes. See `app/scoring/`.
-3. **Generate** — Claude produces field suggestions on demand (Haiku for speed, Sonnet for
-   aggressive rewrites). Rule-based checks run first to keep AI cost low. See `app/ai/`.
+3. **Generate** — each merchant connects **their own AI** (Anthropic, OpenAI, or OpenRouter) via
+   a paste-a-key form or a one-click **OpenRouter OAuth (PKCE)** flow. Keys are encrypted at rest
+   (AES-256-GCM). Suggestions are generated on demand; rule-based checks run first to keep cost low.
+   See `app/ai/` and `app/lib/aiConnection.server.ts`.
 4. **Apply** — selected-field-only updates via `productUpdate` / `fileUpdate`, single or bulk,
    with before/after review. See `app/shopify/mutations.ts`.
 5. **Export & billing** — CSV export and Shopify Billing (Free / Starter $9 / Growth $29 / Pro $79).
@@ -26,15 +28,21 @@ Only sessions, shop metadata, scan settings, and aggregate scan summaries are pe
 
 ## Local development
 
-Prerequisites: Node ≥ 20, a Shopify Partner account + development store, a Postgres database,
-and an `ANTHROPIC_API_KEY`.
+Prerequisites: Node ≥ 20, a Shopify Partner account + development store, and a Postgres database.
+Merchants supply their own AI keys in-app, so no provider key is required to run the app — but you
+must set an `ENCRYPTION_KEY` (used to encrypt those keys at rest).
 
 ```bash
 npm install
-cp .env.example .env        # fill in DATABASE_URL, ANTHROPIC_API_KEY (Shopify vars set by the CLI)
+cp .env.example .env        # fill DATABASE_URL + ENCRYPTION_KEY (Shopify vars set by the CLI)
+# generate an ENCRYPTION_KEY:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
 npx prisma migrate dev      # create the schema
 npm run dev                 # shopify app dev — installs on your dev store
 ```
+
+Merchants then open **Settings → AI connection** to connect Anthropic/OpenAI (paste key) or
+OpenRouter (OAuth). The OpenRouter callback is served at `/openrouter/callback`.
 
 Useful scripts:
 

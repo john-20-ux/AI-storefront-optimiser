@@ -61,3 +61,22 @@ model ScanSummary {
   averageScore         Int       @default(0)
   issueCounts          Json      @default("{}")
 }
+
+// Each shop connects its own AI provider. The API key is encrypted at rest
+// (AES-256-GCM) and never returned to the client.
+model AiConnection {
+  shopDomain   String   @id
+  provider     String // anthropic | openai | openrouter
+  encryptedKey String
+  model        String? // optional model override
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Short-lived PKCE state for the OpenRouter OAuth handshake.
+model OAuthState {
+  state        String   @id
+  shopDomain   String
+  codeVerifier String
+  createdAt    DateTime @default(now())
+}

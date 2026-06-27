@@ -11,7 +11,7 @@ import { stripHtml } from "../scoring/text";
 import { fetchProductById } from "../shopify/fetchProducts";
 import { generateFixes } from "../ai/generate";
 import { applySelectedFixes, type FieldSelection } from "../shopify/applyFixes.server";
-import { aiConfigured } from "../ai/client";
+import { hasConnection, getCredential } from "../lib/aiConnection.server";
 import prisma from "../db.server";
 
 const MAX_BULK_GENERATE = 10;
@@ -58,7 +58,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       levelLabel: r.levelLabel,
       mainIssue: r.mainIssue ?? "—",
     })),
-    canBulk: plan.canBulkApply && aiConfigured(),
+    canBulk: plan.canBulkApply && (await hasConnection(session.shop)),
     canBulkConfigured: plan.canBulkApply,
     planLabel: plan.label,
     maxGenerate: MAX_BULK_GENERATE,
@@ -87,8 +87,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   if (intent === "generate-bulk") {
-    if (!aiConfigured()) {
-      return { ok: false as const, kind: "error" as const, error: "AI is not configured (missing ANTHROPIC_API_KEY)." };
+    const cred = await getCredential(session.shop);
+    if (!cred) {
+      return { ok: false as const, kind: "error" as const, error: "Connect an AI provider in Settings first." };
     }
     const idsRaw = form.get("productIds");
     const ids: string[] = typeof idsRaw === "string" ? JSON.parse(idsRaw) : [];
@@ -102,7 +103,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const result = scoreProduct(product);
       let suggestions;
       try {
-        suggestions = await generateFixes(product, result.issues, settings);
+        suggestions = await generateFixes(product, result.issues, settings, cred);
       } catch {
         continue;
       }
@@ -284,7 +285,9 @@ export default function BulkReview() {
             Generate fixes for {Math.min(selectedIds.length, data.maxGenerate)} selected
           </s-button>
           {!data.canBulk ? (
-            <s-paragraph><s-text color="subdued">AI is not configured.</s-text></s-paragraph>
+            <s-paragraph>
+              <s-text color="subdued">Connect an AI provider in Settings to enable generation.</s-text>
+            </s-paragraph>
           ) : null}
         </s-section>
       ) : (
