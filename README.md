@@ -52,20 +52,24 @@ npm run typecheck   # react-router typegen + tsc
 npm run build       # production build
 ```
 
-## Deploy (Fly.io)
+## Deploy (Render)
 
-```bash
-fly launch --no-deploy            # uses fly.toml
-fly postgres create               # then: fly postgres attach <pg-app>   (sets DATABASE_URL)
-fly secrets set SHOPIFY_API_KEY=... SHOPIFY_API_SECRET=... \
-  SHOPIFY_APP_URL=https://<app>.fly.dev \
-  SCOPES=read_products,write_products,read_files,write_files \
-  ANTHROPIC_API_KEY=...
-fly deploy                        # Dockerfile builds, runs prisma migrate deploy on start
-shopify app deploy                # push app config + scopes to Shopify
-```
+Deploys from this repo via the `render.yaml` Blueprint (web service built from the
+`Dockerfile` + a managed Postgres).
 
-Update `application_url` / redirect URLs in `shopify.app.toml` to the Fly host before `shopify app deploy`.
+1. Push this repo to GitHub.
+2. In Render: **New → Blueprint**, connect the repo. Render provisions the web service
+   and Postgres (`DATABASE_URL` is wired automatically).
+3. Set the four secret env vars in the Render dashboard:
+   `ENCRYPTION_KEY`, `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, and
+   `SHOPIFY_APP_URL=https://<service>.onrender.com`.
+4. Point Shopify at the Render host — set `application_url` + `[auth].redirect_urls`
+   in `shopify.app.toml` to `https://<service>.onrender.com` (+ `/auth/callback`), then
+   run `shopify app deploy`.
+
+The container runs `prisma migrate deploy` on boot, listens on Render's `$PORT`, and
+serves a `/healthz` health check. The OpenRouter OAuth callback is at
+`https://<service>.onrender.com/openrouter/callback` (derived from `SHOPIFY_APP_URL`).
 
 ## Project structure
 
