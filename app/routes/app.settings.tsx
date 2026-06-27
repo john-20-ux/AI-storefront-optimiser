@@ -153,8 +153,8 @@ export default function Settings() {
       <s-section heading="AI connection">
         <s-paragraph>
           <s-text color="subdued">
-            Connect your own AI provider. Your key is encrypted and used only for your store's fix
-            generation.
+            Connect your own AI provider. Your key is encrypted and used only to generate fixes for
+            your store.
           </s-text>
         </s-paragraph>
 

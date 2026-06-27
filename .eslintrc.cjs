@@ -74,6 +74,19 @@ module.exports = {
         "plugin:import/recommended",
         "plugin:import/typescript",
       ],
+      rules: {
+        // `any` is used only at untyped external boundaries (Shopify GraphQL
+        // JSON, LLM JSON responses). Surface as a warning, don't fail the build.
+        "@typescript-eslint/no-explicit-any": "warn",
+      },
+    },
+
+    // Tests — mocks and fixtures legitimately use `any`.
+    {
+      files: ["tests/**/*.{ts,tsx}"],
+      rules: {
+        "@typescript-eslint/no-explicit-any": "off",
+      },
     },
 
     // Node

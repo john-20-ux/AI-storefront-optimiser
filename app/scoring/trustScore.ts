@@ -8,18 +8,6 @@ import {
   USE_CASE_WORDS,
 } from "./text";
 
-const TRUST_METAFIELD_KEYS = [
-  "material",
-  "care",
-  "care_instructions",
-  "size",
-  "size_guide",
-  "ingredients",
-  "warranty",
-  "specification",
-  "specs",
-];
-
 // Trust / Commercial Quality — 10 points (brief §17)
 //  +3 material/specification available
 //  +2 size/care/warranty info available

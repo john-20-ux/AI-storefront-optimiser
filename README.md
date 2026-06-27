@@ -52,6 +52,24 @@ npm run typecheck   # react-router typegen + tsc
 npm run build       # production build
 ```
 
+## Testing
+
+Run the full suite (unit + integration + route tests) with Vitest:
+
+```bash
+npm test
+```
+
+Layers:
+- **Unit** — scoring engine, crypto, OAuth-security helpers, AI provider/model logic, prompts, CSV, plans.
+- **Integration (real Postgres)** — encrypted credential round-trip, shop/settings/summary persistence, OpenRouter PKCE state lifecycle.
+- **External-API mocks** — Shopify GraphQL fetch (pagination/throttle/mapping) and mutations; AI provider dispatch (Anthropic vs OpenAI-compatible).
+- **Route loaders/actions** — plan × connection gating, selected-field apply, and the OAuth callback's cookie/state CSRF check.
+
+Integration tests need a Postgres database; set `TEST_DATABASE_URL` (defaults to the
+local `…:5433/ai_storefront_optimizer_test`). The suite runs in CI on every push/PR via
+`.github/workflows/ci.yml` (typecheck → lint → tests against a Postgres service → audit).
+
 ## Deploy (Render)
 
 Deploys from this repo via the `render.yaml` Blueprint (web service built from the

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useFetcher, useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
@@ -169,7 +169,7 @@ export default function ProductDetail() {
   const data = useLoaderData<typeof loader>();
   const genFetcher = useFetcher<typeof action>();
   const applyFetcher = useFetcher<typeof action>();
-  const [selected, setSelected] = useState<Record<FieldKey, boolean>>({
+  const allSelected = (): Record<FieldKey, boolean> => ({
     title: true,
     descriptionHtml: true,
     seoTitle: true,
@@ -177,25 +177,20 @@ export default function ProductDetail() {
     tags: true,
     imageAlt: true,
   });
+  const [selected, setSelected] = useState<Record<FieldKey, boolean>>(allSelected);
 
   const suggestions =
     genFetcher.data && genFetcher.data.kind === "generate" && genFetcher.data.ok
       ? genFetcher.data.suggestions
       : undefined;
 
-  // Reset selection when fresh suggestions arrive.
-  useEffect(() => {
-    if (suggestions) {
-      setSelected({
-        title: true,
-        descriptionHtml: true,
-        seoTitle: true,
-        seoDescription: true,
-        tags: true,
-        imageAlt: true,
-      });
-    }
-  }, [suggestions]);
+  // Reset selection when fresh suggestions arrive — render-time state adjustment
+  // (React's recommended alternative to a setState-in-effect).
+  const [prevSuggestions, setPrevSuggestions] = useState(suggestions);
+  if (suggestions !== prevSuggestions) {
+    setPrevSuggestions(suggestions);
+    if (suggestions) setSelected(allSelected());
+  }
 
   if (!data.found) {
     return (
