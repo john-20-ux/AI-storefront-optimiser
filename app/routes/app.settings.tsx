@@ -5,7 +5,14 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { ensureShop, getScanSettings } from "../lib/shop.server";
 import { getConnectionPublic } from "../lib/aiConnection.server";
-import { AI_PROVIDERS, PROVIDER_LABELS } from "../lib/aiProviders";
+import {
+  AI_PROVIDERS,
+  PROVIDER_LABELS,
+  PROVIDER_MODELS,
+  CUSTOM_MODEL,
+  isKnownModel,
+  type AiProvider,
+} from "../lib/aiProviders";
 import { signStartToken } from "../lib/oauthSecurity.server";
 import { encryptionConfigured } from "../lib/crypto.server";
 import prisma from "../db.server";
@@ -72,8 +79,10 @@ export default function Settings() {
   const data = useLoaderData<typeof loader>();
   const fetcher = useFetcher<typeof action>();
   const aiFetcher = useFetcher<{ ok: boolean; error?: string }>();
+  const testFetcher = useFetcher<{ ok: boolean; tested?: boolean; model?: string; error?: string }>();
   const busy = fetcher.state !== "idle";
   const aiBusy = aiFetcher.state !== "idle";
+  const testBusy = testFetcher.state !== "idle";
 
   const [tone, setTone] = useState(data.tonePreference);
   const [audience, setAudience] = useState(data.targetAudience);
@@ -85,9 +94,21 @@ export default function Settings() {
   });
 
   // AI connection form state
-  const [provider, setProvider] = useState(data.aiConnection?.provider ?? "anthropic");
+  const initialProvider: AiProvider = data.aiConnection?.provider ?? "anthropic";
+  const initialModel = data.aiConnection?.model ?? "";
+  const initialKnown = isKnownModel(initialProvider, initialModel);
+  const [provider, setProvider] = useState<AiProvider>(initialProvider);
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState(data.aiConnection?.model ?? "");
+  const [modelSelect, setModelSelect] = useState(initialKnown ? initialModel : CUSTOM_MODEL);
+  const [customModel, setCustomModel] = useState(initialKnown ? "" : initialModel);
+
+  const effectiveModel = modelSelect === CUSTOM_MODEL ? customModel.trim() : modelSelect;
+
+  const changeProvider = (value: AiProvider) => {
+    setProvider(value);
+    setModelSelect("");
+    setCustomModel("");
+  };
 
   const save = () => {
     const payload: Record<string, string> = {
@@ -101,10 +122,17 @@ export default function Settings() {
 
   const saveAi = () => {
     aiFetcher.submit(
-      { intent: "save", provider, apiKey, model },
+      { intent: "save", provider, apiKey, model: effectiveModel },
       { method: "POST", action: "/app/ai-connection" },
     );
     setApiKey("");
+  };
+
+  const testAi = () => {
+    testFetcher.submit(
+      { intent: "test", provider, apiKey, model: effectiveModel },
+      { method: "POST", action: "/app/ai-connection" },
+    );
   };
 
   const disconnectAi = () => {
@@ -113,6 +141,7 @@ export default function Settings() {
 
   const saved = fetcher.data && "ok" in fetcher.data && fetcher.data.ok;
   const aiError = aiFetcher.data && !aiFetcher.data.ok ? aiFetcher.data.error : null;
+  const testData = testFetcher.data;
   const conn = data.aiConnection;
 
   return (
@@ -168,31 +197,66 @@ export default function Settings() {
 
         <s-stack direction="block" gap="small-300">
           <s-text type="strong">Or paste an API key</s-text>
-          <s-select label="Provider" value={provider} onChange={(e) => setProvider(e.currentTarget.value as typeof provider)}>
+          <s-select
+            label="Provider"
+            value={provider}
+            onChange={(e) => changeProvider(e.currentTarget.value as AiProvider)}
+          >
             {AI_PROVIDERS.map((p) => (
               <s-option key={p} value={p}>{PROVIDER_LABELS[p]}</s-option>
             ))}
           </s-select>
           <s-password-field
             label="API key"
-            placeholder="sk-..."
+            placeholder={conn ? "Enter a new key to replace the saved one" : "sk-..."}
             value={apiKey}
             onInput={(e) => setApiKey(e.currentTarget.value)}
           />
-          <s-text-field
-            label="Model (optional)"
-            placeholder="Leave blank for a sensible default"
-            value={model}
-            onInput={(e) => setModel(e.currentTarget.value)}
-          />
+          <s-select
+            label="Model"
+            value={modelSelect}
+            onChange={(e) => setModelSelect(e.currentTarget.value)}
+          >
+            {PROVIDER_MODELS[provider].map((m) => (
+              <s-option key={m.value || "default"} value={m.value}>{m.label}</s-option>
+            ))}
+          </s-select>
+          {modelSelect === CUSTOM_MODEL ? (
+            <s-text-field
+              label="Custom model ID"
+              placeholder="e.g. anthropic/claude-3.7-sonnet"
+              value={customModel}
+              onInput={(e) => setCustomModel(e.currentTarget.value)}
+            />
+          ) : null}
+
+          {testData?.tested ? (
+            testData.ok ? (
+              <s-banner tone="success">
+                <s-paragraph>Connection works{testData.model ? ` · model ${testData.model}` : ""}.</s-paragraph>
+              </s-banner>
+            ) : (
+              <s-banner tone="critical">
+                <s-paragraph>Connection failed: {testData.error}</s-paragraph>
+              </s-banner>
+            )
+          ) : null}
+
           <s-stack direction="inline" gap="base">
             <s-button
               variant="primary"
               onClick={saveAi}
-              {...(aiBusy || !data.encryptionReady ? { loading: aiBusy } : {})}
+              {...(aiBusy ? { loading: true } : {})}
               {...(!data.encryptionReady ? { disabled: true } : {})}
             >
               Save AI connection
+            </s-button>
+            <s-button
+              variant="secondary"
+              onClick={testAi}
+              {...(testBusy ? { loading: true } : {})}
+            >
+              Test connection
             </s-button>
             {conn ? (
               <s-button variant="tertiary" tone="critical" onClick={disconnectAi}>
